@@ -1,6 +1,6 @@
 """FastAPI router for Super Admin backoffice endpoints."""
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin.schemas import (
@@ -9,14 +9,18 @@ from app.admin.schemas import (
     AdminPlanResponse,
     AdminPlanUpdate,
     AdminUserItem,
+    DLQJobListResponse,
+    RetryJobResponse,
     UpdateUserStatusRequest,
 )
 from app.admin.service import (
     create_plan_admin,
     get_ai_ledger_summary,
     get_plan_admin,
+    list_dlq_jobs_admin,
     list_plans_admin,
     list_users_admin,
+    retry_dlq_job_admin,
     toggle_plan_status_admin,
     update_plan_admin,
     update_user_status_admin,
@@ -129,3 +133,29 @@ async def get_ai_ledger_endpoint(
 ):
     """Query append-only AI usage ledger and aggregate token/cost totals."""
     return await get_ai_ledger_summary(db, user_id=user_id, limit=limit, offset=offset)
+
+
+# --- Dead Letter Queue (DLQ) Oversight Endpoints ---
+
+@router.get("/jobs/dlq", response_model=DLQJobListResponse)
+async def list_dlq_jobs_endpoint(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_superuser),
+):
+    """List permanently failed jobs stored in the Dead Letter Queue."""
+    return await list_dlq_jobs_admin(db, limit=limit, offset=offset)
+
+
+@router.post("/jobs/{job_id}/retry", response_model=RetryJobResponse)
+async def retry_dlq_job_endpoint(
+    job_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_superuser),
+):
+    """Replay a failed DLQ job back into the active processing queue."""
+    redis_pool = getattr(request.app.state, "redis", None)
+    return await retry_dlq_job_admin(db, job_id=job_id, redis_pool=redis_pool)
+

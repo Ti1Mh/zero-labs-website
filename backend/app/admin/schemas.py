@@ -101,3 +101,39 @@ class AILedgerSummaryResponse(BaseModel):
     total_tokens_completion: int
     total_cost_cents: int
     items: list[AILedgerEntryResponse]
+
+
+# --- Dead Letter Queue (DLQ) Schemas ---
+
+class DLQJobItemResponse(BaseModel):
+    """Job record in the Dead Letter Queue."""
+
+    id: int
+    platform_id: int
+    description: str
+    status: str
+    error_message: str | None = None
+    traceback_log: str | None = None
+    retry_count: int = 0
+    max_retries: int = 5
+    last_attempt_at: datetime | None = None
+    created_at: datetime | None = None
+    extra_metadata: dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DLQJobListResponse(BaseModel):
+    """List of DLQ jobs with total count."""
+
+    total: int
+    items: list[DLQJobItemResponse]
+
+
+class RetryJobResponse(BaseModel):
+    """Response when replaying a failed DLQ job."""
+
+    job_id: int
+    status: str
+    message: str
+

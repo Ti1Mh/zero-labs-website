@@ -35,6 +35,7 @@ from app.analytics.service import get_timeline
 from app.auth.dependencies import TeamContext
 from app.ai.ledger_models import AIUsageLedger
 from app.ai.safety import check_content_safety
+from app.ai.youtube_schemas import enforce_youtube_limits
 from app.core.config import get_settings
 from app.core.exceptions import InvalidInputError, NotFoundError
 from app.models.content import ContentJob
@@ -387,6 +388,17 @@ async def generate_post(
         response_model=GeneratedPostResponse,
         system_prompt=system_prompt,
     )
+
+    if request.platform == "youtube":
+        limited = enforce_youtube_limits({
+            "title": response.headline,
+            "description": response.body,
+            "tags": response.hashtags,
+            "is_short": True if ("#shorts" in response.body.lower() or "#shorts" in response.headline.lower()) else False,
+        })
+        response.headline = limited["title"]
+        response.body = limited["description"]
+        response.hashtags = limited["tags"]
 
     # 2. Record immutable transaction in AI usage ledger
     tokens_prompt = max(10, (len(system_prompt) + len(user_prompt)) // 4)

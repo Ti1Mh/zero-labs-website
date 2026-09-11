@@ -33,6 +33,14 @@ PLATFORM_GUIDELINES: dict[str, str] = {
         "- Clear headline, informative body with appropriate Persian typography.\n"
         "- End with an engaging prompt or join CTA."
     ),
+    "youtube": (
+        "- Title: High-CTR, compelling, strictly under 100 characters (recommended 60-80 chars).\n"
+        "- Hook: First 3 seconds of description/script must create curiosity.\n"
+        "- Description: Detailed SEO-rich overview with chapters/summary (under 5000 characters).\n"
+        "- Tags: Comma-separated search keywords; total combined characters must be under 500.\n"
+        "- Shorts: If creating vertical video content, include #Shorts in title and description.\n"
+        "- Call-to-Action: Ask viewers to subscribe, comment, and check links."
+    ),
 }
 
 SYSTEM_PROMPT_TEMPLATE = """You are an elite social media strategist and copywriting expert for ZeroIO Labs.

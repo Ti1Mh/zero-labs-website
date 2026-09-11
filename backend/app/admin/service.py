@@ -10,11 +10,15 @@ from app.admin.schemas import (
     AILedgerSummaryResponse,
     AdminPlanCreate,
     AdminPlanUpdate,
+    DLQJobItemResponse,
+    DLQJobListResponse,
+    RetryJobResponse,
     UpdateUserStatusRequest,
 )
 from app.ai.ledger_models import AIUsageLedger
 from app.auth.models import User
 from app.core.exceptions import ConflictError, NotFoundError
+from app.models.content import ContentJob
 from app.subscriptions.models import Plan
 
 logger = logging.getLogger(__name__)
@@ -220,3 +224,69 @@ async def get_ai_ledger_summary(
         total_cost_cents=total_cost_cents,
         items=items,
     )
+
+
+# --- Dead Letter Queue (DLQ) Oversight ---
+
+async def list_dlq_jobs_admin(
+    db: AsyncSession,
+    limit: int = 50,
+    offset: int = 0,
+) -> DLQJobListResponse:
+    """List jobs that have failed and transitioned to Dead Letter Queue (DLQ)."""
+    count_query = select(func.count(ContentJob.id)).where(ContentJob.status == "failed")
+    count_res = await db.execute(count_query)
+    count_scalar = count_res.scalar()
+    if inspect.isawaitable(count_scalar):
+        count_scalar = await count_scalar
+    total = count_scalar or 0
+
+    jobs_query = (
+        select(ContentJob)
+        .where(ContentJob.status == "failed")
+        .order_by(ContentJob.last_attempt_at.desc().nullslast(), ContentJob.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    res = await db.execute(jobs_query)
+    scalars = res.scalars()
+    if inspect.isawaitable(scalars):
+        scalars = await scalars
+    jobs = scalars.all()
+    if inspect.isawaitable(jobs):
+        jobs = await jobs
+
+    items = [DLQJobItemResponse.model_validate(j) for j in jobs]
+    return DLQJobListResponse(total=total, items=items)
+
+
+async def retry_dlq_job_admin(
+    db: AsyncSession,
+    job_id: int,
+    redis_pool: object = None,
+) -> RetryJobResponse:
+    """Replay a failed DLQ job back into the active processing queue."""
+    result = await db.execute(select(ContentJob).where(ContentJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if inspect.isawaitable(job):
+        job = await job
+    if not job:
+        raise NotFoundError("جاب مورد نظر یافت نشد.")
+
+    job.status = "queued"
+    job.retry_count = 0
+    job.error_message = None
+    job.traceback_log = None
+    await db.flush()
+
+    if redis_pool is not None:
+        enqueue_res = redis_pool.enqueue_job("publish_content", job.id)
+        if inspect.isawaitable(enqueue_res):
+            await enqueue_res
+
+    return RetryJobResponse(
+        job_id=job.id,
+        status="queued",
+        message="جاب با موفقیت مجدداً به صف پردازش ارسال شد.",
+    )
+
