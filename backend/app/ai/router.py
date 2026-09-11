@@ -34,6 +34,7 @@ from app.ai.service import (
     stream_post,
     update_brand_persona,
 )
+from app.ai.dependencies import enforce_ai_guardrails
 from app.auth.dependencies import TeamContext, require
 from app.core.database import get_db
 
@@ -45,7 +46,7 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 @router.post("/generate", response_model=GeneratedPostResponse)
 async def generate_post_endpoint(
     request: GeneratePostRequest,
-    team: TeamContext = Depends(require("ai:use")),
+    team: TeamContext = Depends(enforce_ai_guardrails),
     db: AsyncSession = Depends(get_db),
 ) -> GeneratedPostResponse:
     """Generate structured social media content tailored to platform, persona, and user tier."""
@@ -55,7 +56,7 @@ async def generate_post_endpoint(
 @router.post("/stream")
 async def stream_post_endpoint(
     request: GeneratePostRequest,
-    team: TeamContext = Depends(require("ai:use")),
+    team: TeamContext = Depends(enforce_ai_guardrails),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
     """Stream token deltas in real-time using Server-Sent Events (SSE)."""
@@ -162,7 +163,7 @@ async def set_default_persona_endpoint(
 @router.post("/optimize", response_model=OptimizePostResponse)
 async def optimize_post_endpoint(
     request: OptimizePostRequest,
-    team: TeamContext = Depends(require("ai:use")),
+    team: TeamContext = Depends(enforce_ai_guardrails),
     db: AsyncSession = Depends(get_db),
 ) -> OptimizePostResponse:
     """Audit and polish an existing draft post ('Content Doctor')."""
@@ -172,7 +173,7 @@ async def optimize_post_endpoint(
 @router.post("/repurpose", response_model=RepurposeResponse)
 async def repurpose_post_endpoint(
     request: RepurposeRequest,
-    team: TeamContext = Depends(require("ai:use")),
+    team: TeamContext = Depends(enforce_ai_guardrails),
     db: AsyncSession = Depends(get_db),
 ) -> RepurposeResponse:
     """Repurpose a master idea or text into platform-specific posts across multiple channels."""
@@ -182,7 +183,7 @@ async def repurpose_post_endpoint(
 @router.post("/smart-schedule", response_model=SmartScheduleResponse)
 async def smart_schedule_endpoint(
     request: SmartScheduleRequest,
-    team: TeamContext = Depends(require("ai:use")),
+    team: TeamContext = Depends(enforce_ai_guardrails),
     db: AsyncSession = Depends(get_db),
 ) -> SmartScheduleResponse:
     """Get AI-recommended scheduling time slots based on past performance metrics."""

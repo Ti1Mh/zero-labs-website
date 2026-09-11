@@ -30,6 +30,7 @@ from app.auth.schemas import (
 )
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.rate_limit import enforce_otp_rate_limits
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -42,7 +43,10 @@ def _device(request: Request) -> str | None:
 
 
 def _ip(request: Request) -> str | None:
-    """Extract the client IP address."""
+    """Extract the client IP address (supporting X-Forwarded-For reverse proxies)."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
     return request.client.host if request.client else None
 
 
@@ -50,14 +54,19 @@ def _ip(request: Request) -> str | None:
 async def register_request(
     payload: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> OtpResponse:
-    """Send a registration OTP to the given phone number."""
+    """Send a registration OTP to the given phone number with multi-tier rate limiting."""
+    client_ip = _ip(request)
+    redis_client = getattr(request.app.state, "redis", None)
+    await enforce_otp_rate_limits(redis_client, payload.phone, client_ip)
+
     code = await service.request_register(
-        db, payload.phone, ip_address=_ip(request), honeypot=payload.website
+        db, payload.phone, ip_address=client_ip, honeypot=payload.website
     )
     return OtpResponse(
         message="کد تأیید ارسال شد.",
         dev_otp_code=code if settings.debug else None,
     )
+
 
 
 @router.post("/register/verify", response_model=TokenResponse)
@@ -100,12 +109,17 @@ async def logout(payload: RefreshRequest, db: AsyncSession = Depends(get_db)) ->
 async def password_reset_request(
     payload: ResetRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> OtpResponse:
-    """Send a reset OTP without leaking account existence."""
-    code = await service.request_reset(db, payload.phone, ip_address=_ip(request))
+    """Send a reset OTP without leaking account existence, with multi-tier rate limiting."""
+    client_ip = _ip(request)
+    redis_client = getattr(request.app.state, "redis", None)
+    await enforce_otp_rate_limits(redis_client, payload.phone, client_ip)
+
+    code = await service.request_reset(db, payload.phone, ip_address=client_ip)
     return OtpResponse(
         message="اگر شماره ثبت شده باشد، کد ارسال شد.",
         dev_otp_code=code if (settings.debug and code) else None,
     )
+
 
 
 @router.post("/password-reset/confirm", response_model=MessageResponse)

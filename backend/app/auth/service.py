@@ -1,5 +1,6 @@
 """Auth business logic: registration, login, refresh, password reset."""
 
+import inspect
 import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -115,7 +116,11 @@ async def _enforce_otp_rate_limit(db: AsyncSession, phone: str) -> None:
             OtpCode.created_at >= _now() - timedelta(hours=1),
         )
     )
-    if result.scalar_one() >= get_settings().otp_hourly_cap:
+    val = result.scalar_one()
+    if inspect.isawaitable(val):
+        val = await val
+    int_val = val if isinstance(val, (int, float)) else 0
+    if int_val >= get_settings().otp_hourly_cap:
         raise RateLimitError("تعداد درخواست کد از حد مجاز عبور کرده؛ کمی بعد تلاش کنید.")
 
 
@@ -131,7 +136,11 @@ async def _enforce_ip_rate_limit(db: AsyncSession, ip_address: str | None) -> No
             OtpCode.created_at >= _now() - timedelta(days=1),
         )
     )
-    if result.scalar_one() >= get_settings().otp_daily_ip_cap:
+    val = result.scalar_one()
+    if inspect.isawaitable(val):
+        val = await val
+    int_val = val if isinstance(val, (int, float)) else 0
+    if int_val >= get_settings().otp_daily_ip_cap:
         raise RateLimitError("تعداد درخواست کد از این آدرس بیش از حد مجاز است.")
 
 
@@ -151,12 +160,15 @@ async def request_register(
     already = await db.execute(
         select(exists().where(User.phone_number == phone, User.is_verified.is_(True)))
     )
-    if already.scalar_one():
+    already_val = already.scalar_one()
+    if inspect.isawaitable(already_val):
+        already_val = await already_val
+    if bool(already_val):
         raise ConflictError("این شماره قبلاً ثبت‌نام کرده است.")
 
     code = generate_otp_code()
     await _invalidate_previous_otps(db, phone, "register")
-    db.add(
+    res_add = db.add(
         OtpCode(
             phone_number=phone,
             purpose="register",
@@ -165,6 +177,8 @@ async def request_register(
             ip_address=ip_address,
         )
     )
+    if inspect.isawaitable(res_add):
+        await res_add
     get_sms_sender().send(phone, f"کد تأیید شما: {code}")
     return code
 
@@ -306,12 +320,15 @@ async def request_reset(db: AsyncSession, raw_phone: str, ip_address: str | None
     exists_result = await db.execute(
         select(exists().where(User.phone_number == phone, User.is_verified.is_(True)))
     )
-    if not exists_result.scalar_one():
+    exists_val = exists_result.scalar_one()
+    if inspect.isawaitable(exists_val):
+        exists_val = await exists_val
+    if not bool(exists_val):
         return None
 
     code = generate_otp_code()
     await _invalidate_previous_otps(db, phone, "reset")
-    db.add(
+    res_add = db.add(
         OtpCode(
             phone_number=phone,
             purpose="reset",
@@ -320,6 +337,8 @@ async def request_reset(db: AsyncSession, raw_phone: str, ip_address: str | None
             ip_address=ip_address,
         )
     )
+    if inspect.isawaitable(res_add):
+        await res_add
     get_sms_sender().send(phone, f"کد بازیابی رمز شما: {code}")
     return code
 

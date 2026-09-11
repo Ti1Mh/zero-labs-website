@@ -36,6 +36,10 @@ class RateLimitError(DomainError):
 
     code = "RATE_LIMITED"
 
+    def __init__(self, message: str = "تعداد درخواست بیش از حد مجاز است.", retry_after: int | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
 
 class AuthorizationError(DomainError):
     """User lacks permission for the requested action (HTTP 403)."""

@@ -82,8 +82,15 @@ async def handle_conflict(request: Request, exc: ConflictError) -> JSONResponse:
 
 @app.exception_handler(RateLimitError)
 async def handle_rate_limit(request: Request, exc: RateLimitError) -> JSONResponse:
-    """Map rate-limit domain errors to HTTP 429."""
-    return JSONResponse(status_code=429, content={"message": str(exc), "code": exc.code})
+    """Map rate-limit domain errors to HTTP 429 with standard Retry-After header."""
+    headers: dict[str, str] = {}
+    if getattr(exc, "retry_after", None) is not None:
+        headers["Retry-After"] = str(exc.retry_after)
+    content: dict[str, object] = {"message": str(exc), "code": exc.code}
+    if getattr(exc, "retry_after", None) is not None:
+        content["retry_after"] = exc.retry_after
+    return JSONResponse(status_code=429, content=content, headers=headers)
+
 
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(content_router, prefix="/api/v1")

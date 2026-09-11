@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 import logging
+from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +39,7 @@ from app.ai.safety import check_content_safety
 from app.ai.youtube_schemas import enforce_youtube_limits
 from app.core.config import get_settings
 from app.core.exceptions import InvalidInputError, NotFoundError
+from app.core.rate_limit import record_ai_spend_cache
 from app.models.content import ContentJob
 from app.models.platform import Platform
 from app.subscriptions.models import Plan
@@ -114,8 +116,9 @@ async def record_ai_usage(
     tokens_prompt: int = 150,
     tokens_completion: int = 350,
     content_job_id: int | None = None,
+    redis_client: Any = None,
 ) -> AIUsageLedger:
-    """Append immutable transaction entry to the AI usage ledger."""
+    """Append immutable transaction entry to the AI usage ledger and update spend cache."""
     cost_cents = calculate_cost_cents(model, tokens_prompt, tokens_completion)
     ledger_entry = AIUsageLedger(
         owner_id=team.owner.id,
@@ -132,6 +135,10 @@ async def record_ai_usage(
     if inspect.isawaitable(res):
         await res
     await db.flush()
+
+    if redis_client is not None and cost_cents > 0:
+        await record_ai_spend_cache(redis_client, team.owner.id, cost_cents)
+
     return ledger_entry
 
 

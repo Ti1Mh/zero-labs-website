@@ -24,7 +24,15 @@ class Settings(BaseSettings):
     access_token_ttl_minutes: int = 30
     refresh_token_ttl_days: int = 30
     otp_ttl_minutes: int = 5
-    otp_hourly_cap: int = 3
+    otp_cooldown_seconds: int = 60
+    otp_window_10m_cap: int = 3
+    otp_hourly_cap: int = 5
+    otp_ip_10m_cap: int = 10
+    otp_daily_ip_cap: int = 50
+
+    # Rate Limiting & AI Circuit Breakers
+    ai_burst_per_minute: int = 10
+    ai_daily_spend_cap_cents: int = 500  # $5.00 daily spend ceiling tripwire
     fernet_key: str | None = None
 
     # S3 / MinIO Object Storage
