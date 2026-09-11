@@ -1,6 +1,7 @@
-"""System prompts and formatting templates for platform-specific generation."""
+"""System prompts and formatting templates for platform-specific generation, personas, and doctoring."""
 
-from app.ai.schemas import GeneratePostRequest
+from typing import Any
+from app.ai.schemas import GeneratePostRequest, OptimizePostRequest, RepurposeRequest
 
 PLATFORM_GUIDELINES: dict[str, str] = {
     "telegram": (
@@ -44,6 +45,10 @@ Tone: {tone}
 Platform Rules:
 {platform_rules}
 
+{persona_section}
+
+{analytics_section}
+
 Formatting & Quality Rules:
 1. Return ONLY valid JSON matching the requested schema without conversational filler.
 2. Hook must grab attention in the first 3 seconds.
@@ -52,12 +57,62 @@ Formatting & Quality Rules:
 """
 
 
-def build_system_prompt(request: GeneratePostRequest) -> str:
+def _format_persona_clause(persona: Any | None) -> str:
+    """Format Brand Persona constraints including tone sliders, lexicons, and exemplars."""
+    if not persona:
+        return ""
+
+    lines = ["Brand Voice & Persona Requirements:"]
+    lines.append(f"- Brand Name: {persona.name}")
+    if persona.description:
+        lines.append(f"- Brand Overview: {persona.description}")
+
+    if hasattr(persona, "tone_traits") and isinstance(persona.tone_traits, dict) and persona.tone_traits:
+        traits = persona.tone_traits
+        lines.append(
+            f"- Stylistic Sliders (1-5 scale): Formality={traits.get('formality', 3)}/5, "
+            f"Humor={traits.get('humor', 2)}/5, Enthusiasm={traits.get('enthusiasm', 4)}/5, "
+            f"Boldness={traits.get('boldness', 3)}/5"
+        )
+
+    if hasattr(persona, "forbidden_words") and isinstance(persona.forbidden_words, list) and persona.forbidden_words:
+        forbidden_str = ", ".join(f'"{w}"' for w in persona.forbidden_words)
+        lines.append(f"- STRICT FORBIDDEN WORDS (Never use these): {forbidden_str}")
+
+    if hasattr(persona, "signature_phrases") and isinstance(persona.signature_phrases, list) and persona.signature_phrases:
+        sig_str = ", ".join(f'"{s}"' for s in persona.signature_phrases)
+        lines.append(f"- Signature Phrases / Catchphrases to echo: {sig_str}")
+
+    if hasattr(persona, "sample_posts") and isinstance(persona.sample_posts, list) and persona.sample_posts:
+        lines.append("- Exemplary Past Brand Posts (Mimic their rhythm, emoji style, and voice):")
+        for idx, sample in enumerate(persona.sample_posts[:3], 1):
+            lines.append(f"  Example {idx}: \"\"\"{sample}\"\"\"")
+
+    return "\n".join(lines)
+
+
+def _format_analytics_clause(past_winners: list[str] | None) -> str:
+    """Format analytics feedback loop with historical successful posts."""
+    if not past_winners:
+        return ""
+
+    lines = ["Historical Top-Performing Posts for This Channel:"]
+    lines.append("Analyze these past winning posts and replicate their engagement patterns:")
+    for idx, post in enumerate(past_winners[:3], 1):
+        lines.append(f"  Winning Post {idx}: \"\"\"{post}\"\"\"")
+    return "\n".join(lines)
+
+
+def build_system_prompt(
+    request: GeneratePostRequest,
+    persona: Any | None = None,
+    past_winners: list[str] | None = None,
+) -> str:
     """Build a specialized system prompt for the generation request."""
     lang_name = "Persian (Farsi)" if request.language == "fa" else "English"
     audience_clause = (
-        f"Target Audience: {request.target_audience}"
-        if request.target_audience
+        f"Target Audience: {request.target_audience or getattr(persona, 'target_audience', None)}"
+        if (request.target_audience or getattr(persona, "target_audience", None))
         else "Target Audience: General engaged audience interested in this niche."
     )
     platform_rules = PLATFORM_GUIDELINES.get(
@@ -65,12 +120,17 @@ def build_system_prompt(request: GeneratePostRequest) -> str:
         PLATFORM_GUIDELINES["telegram"],
     )
 
+    persona_section = _format_persona_clause(persona)
+    analytics_section = _format_analytics_clause(past_winners)
+
     return SYSTEM_PROMPT_TEMPLATE.format(
         language_name=lang_name,
         platform=request.platform.upper(),
         tone=request.tone,
         audience_clause=audience_clause,
         platform_rules=platform_rules,
+        persona_section=persona_section,
+        analytics_section=analytics_section,
     )
 
 
@@ -96,3 +156,99 @@ def build_user_prompt(request: GeneratePostRequest) -> str:
         instructions.append("- 'suggested_media_prompt': null")
 
     return "\n".join(instructions)
+
+
+# --- Content Doctor Prompts ---
+
+DOCTOR_SYSTEM_PROMPT = """You are the Senior Content Doctor and Chief Engagement Auditor for ZeroIO Labs.
+Your mission is to perform a surgical review of a social media draft for {platform} and return an improved, high-converting rewrite.
+
+{persona_section}
+
+Platform Rules:
+{platform_rules}
+
+Evaluation Criteria:
+1. 'hook_score' (0-100): Will it stop the user from scrolling in the first 2 seconds?
+2. 'readability_score' (0-100): Are sentences digestible? Is mobile spacing used properly?
+3. 'call_to_action_score' (0-100): Does it compel readers to comment, share, or click?
+4. 'overall_score' (0-100): Composite index.
+5. 'strengths': 2-3 genuine strong points.
+6. 'weaknesses': 2-3 clear areas for improvement.
+7. 'improved_version': The complete rewritten, polished post ready for publishing.
+8. 'alternative_hooks': 3 diverse high-curiosity hook options.
+
+Output ONLY valid JSON matching this exact structure.
+"""
+
+
+def build_doctor_prompts(
+    request: OptimizePostRequest,
+    persona: Any | None = None,
+) -> tuple[str, str]:
+    """Return (system_prompt, user_prompt) for Content Doctor optimization."""
+    platform_rules = PLATFORM_GUIDELINES.get(request.platform, PLATFORM_GUIDELINES["telegram"])
+    persona_section = _format_persona_clause(persona)
+
+    sys_prompt = DOCTOR_SYSTEM_PROMPT.format(
+        platform=request.platform.upper(),
+        platform_rules=platform_rules,
+        persona_section=persona_section,
+    )
+
+    user_instructions = [
+        f"Draft Post to Review and Optimize:\n\"\"\"{request.draft_text}\"\"\"",
+    ]
+    if request.extra_instructions:
+        user_instructions.append(f"Special Focus: {request.extra_instructions}")
+
+    return sys_prompt, "\n".join(user_instructions)
+
+
+# --- Repurposing Prompts ---
+
+REPURPOSE_SYSTEM_PROMPT = """You are an omnichannel content repurposing master at ZeroIO Labs.
+Given a core master idea or article, you adapt it into tailor-made, platform-native posts for: {target_platforms}.
+
+{persona_section}
+
+Rules for each requested platform:
+{platform_rules}
+
+Output ONLY valid JSON in this format:
+{{
+  "source_summary": "1-2 sentence distillation of core message",
+  "posts": {{
+    "<platform_code>": {{
+      "headline": "catchy headline",
+      "hook": "platform-tailored opening hook",
+      "body": "complete body formatted with platform emojis, breaks, and style",
+      "hashtags": ["#tag1", "#tag2"],
+      "call_to_action": "closing CTA"
+    }}
+  }}
+}}
+"""
+
+
+def build_repurpose_prompts(
+    request: RepurposeRequest,
+    persona: Any | None = None,
+) -> tuple[str, str]:
+    """Return (system_prompt, user_prompt) for multi-platform repurposing."""
+    platform_rules_joined = "\n\n".join(
+        f"[{p.upper()}]:\n{PLATFORM_GUIDELINES.get(p, '')}" for p in request.target_platforms
+    )
+    persona_section = _format_persona_clause(persona)
+
+    sys_prompt = REPURPOSE_SYSTEM_PROMPT.format(
+        target_platforms=", ".join(request.target_platforms).upper(),
+        persona_section=persona_section,
+        platform_rules=platform_rules_joined,
+    )
+
+    user_prompt = f"Source Content to Repurpose:\n\"\"\"{request.source_text}\"\"\""
+    if request.extra_instructions:
+        user_prompt += f"\nAdditional Instructions: {request.extra_instructions}"
+
+    return sys_prompt, user_prompt

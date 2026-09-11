@@ -83,6 +83,47 @@ class MockAIProvider(BaseAIProvider):
             mock_data["suggested_media_prompt"] = (
                 f"Professional high-res minimalist 3D isometric rendering depicting {prompt[:30]}, modern aesthetic"
             )
+
+        # Content Doctor response fields
+        if "overall_score" in fields:
+            mock_data["overall_score"] = 86
+        if "hook_score" in fields:
+            mock_data["hook_score"] = 82
+        if "readability_score" in fields:
+            mock_data["readability_score"] = 90
+        if "call_to_action_score" in fields:
+            mock_data["call_to_action_score"] = 85
+        if "strengths" in fields:
+            mock_data["strengths"] = ["ساختار بندی خوب با ایموجی", "وضوح پیام اصلی برای مخاطب"]
+        if "weaknesses" in fields:
+            mock_data["weaknesses"] = ["هوک شروع می‌توانست کنجکاوی بیشتری برانگیزد", "دعوت به اقدام می‌تواند صریح‌تر باشد"]
+        if "improved_version" in fields:
+            mock_data["improved_version"] = f"✨ نسخه بهینه‌سازی‌شده:\n\n{prompt[:120]}...\n\nبهترین نتیجه در تداوم است."
+        if "alternative_hooks" in fields:
+            mock_data["alternative_hooks"] = [
+                "راز واقعی این موضوع چیست؟ 👇",
+                "۳ اشتباهی که ۹۰ درصد افراد مرتکب می‌شوند:",
+                "اگر می‌خواهید در این زمینه پیشرفت کنید، این پست برای شماست:",
+            ]
+
+        # Repurposing fields
+        if "source_summary" in fields:
+            mock_data["source_summary"] = f"خلاصه پیام اصلی: {prompt[:60]}..."
+        if "posts" in fields:
+            from app.ai.schemas import RepurposedPlatformPost
+            sample_variant = RepurposedPlatformPost(
+                headline=f"پست اختصاصی برای {prompt[:25]}",
+                hook="نکته مهم و کلیدی 👇",
+                body=f"محتوای بهینه‌سازی‌شده بر اساس لحن برند و فرمت پلتفرم: {prompt[:80]}",
+                hashtags=["#تخصصی", "#رشد"],
+                call_to_action="نظرتان را کامنت کنید.",
+            )
+            mock_data["posts"] = {
+                "telegram": sample_variant,
+                "instagram": sample_variant,
+                "twitter": sample_variant,
+            }
+
         if "model_used" in fields:
             mock_data["model_used"] = model
         if "provider_used" in fields:
