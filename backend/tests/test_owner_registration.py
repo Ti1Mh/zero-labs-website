@@ -1,4 +1,4 @@
-﻿"""Unit tests for user registration and team owner role assignment."""
+"""Unit tests for user registration and team owner role assignment."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch

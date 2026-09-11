@@ -1,4 +1,4 @@
-﻿"""Unit tests for Subscription amount_paid snapshot and smallest-unit calculation."""
+"""Unit tests for Subscription amount_paid snapshot and smallest-unit calculation."""
 
 from datetime import datetime, timezone
 from app.subscriptions.models import Plan, Subscription

@@ -1,4 +1,4 @@
-﻿"""Unit tests for subscription quota enforcement."""
+"""Unit tests for subscription quota enforcement."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch

@@ -1,4 +1,4 @@
-﻿"""Unit tests for ContentStatus cancelled separation and analytics schemas."""
+"""Unit tests for ContentStatus cancelled separation and analytics schemas."""
 
 import pytest
 from pydantic import ValidationError

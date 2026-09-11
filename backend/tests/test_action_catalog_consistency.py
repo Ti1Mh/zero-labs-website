@@ -1,4 +1,4 @@
-﻿"""Automated consistency test between require("...") calls and ACTION_CATALOG."""
+"""Automated consistency test between require("...") calls and ACTION_CATALOG."""
 
 import ast
 import re
@@ -11,7 +11,7 @@ def get_require_calls_from_ast(file_path: Path) -> list[tuple[int, str]]:
     """Extract action strings from require(...) calls using AST."""
     calls = []
     try:
-        content = file_path.read_text(encoding="utf-8")
+        content = file_path.read_text(encoding="utf-8-sig")
         tree = ast.parse(content, filename=str(file_path))
     except Exception as exc:
         raise RuntimeError(f"Failed to parse {file_path}: {exc}") from exc
@@ -69,7 +69,7 @@ def test_regex_consistency_check():
 
     found_actions = set()
     for py_file in app_dir.rglob("*.py"):
-        content = py_file.read_text(encoding="utf-8")
+        content = py_file.read_text(encoding="utf-8-sig")
         matches = pattern.findall(content)
         for match in matches:
             found_actions.add(match)

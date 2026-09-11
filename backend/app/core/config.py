@@ -25,8 +25,15 @@ class Settings(BaseSettings):
     refresh_token_ttl_days: int = 30
     otp_ttl_minutes: int = 5
     otp_hourly_cap: int = 3
-    otp_daily_ip_cap: int = 10
     fernet_key: str | None = None
+
+    # S3 / MinIO Object Storage
+    s3_endpoint_url: str = "http://127.0.0.1:9000"
+    s3_access_key: str = "minioadmin"
+    s3_secret_key: str = "minioadmin"
+    s3_bucket_name: str = "social-publish"
+    s3_region_name: str = "us-east-1"
+    s3_public_url: str | None = None
 
     @property
     def cors_origins(self) -> list[str]:
