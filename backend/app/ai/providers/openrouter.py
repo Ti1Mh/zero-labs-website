@@ -34,6 +34,7 @@ class OpenRouterProvider(BaseAIProvider):
         self.app_name = app_name
         self.timeout = timeout
         self.fallback_models = fallback_models or ["openai/gpt-4o-mini"]
+        self.provider_name = "openrouter"
 
     def _get_headers(self) -> dict[str, str]:
         """Build OpenRouter required and metadata headers."""

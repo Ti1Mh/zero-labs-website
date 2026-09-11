@@ -34,6 +34,15 @@ async def get_current_user(
     return user
 
 
+async def require_superuser(
+    user: User = Depends(get_current_user),
+) -> User:
+    """Ensure the authenticated user is a platform superuser."""
+    if not user.is_superuser:
+        raise AuthorizationError("دسترسی به این بخش نیازمند سطح دسترسی مدیر کل است.")
+    return user
+
+
 @dataclass
 class TeamContext:
     """The team context for the current request."""

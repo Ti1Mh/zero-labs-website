@@ -33,8 +33,10 @@ from app.ai.schemas import (
 )
 from app.analytics.service import get_timeline
 from app.auth.dependencies import TeamContext
+from app.ai.ledger_models import AIUsageLedger
+from app.ai.safety import check_content_safety
 from app.core.config import get_settings
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import InvalidInputError, NotFoundError
 from app.models.content import ContentJob
 from app.models.platform import Platform
 from app.subscriptions.models import Plan
@@ -90,6 +92,83 @@ async def resolve_user_ai_tier(
         return "free", settings.ai_free_model
 
 
+def calculate_cost_cents(model: str, tokens_prompt: int, tokens_completion: int) -> int:
+    """Calculate or estimate API cost in US cents."""
+    m = model.lower()
+    if "claude" in m or "sonnet" in m:
+        cost = (tokens_prompt * 300 + tokens_completion * 1500) / 1_000_000
+        return max(1, round(cost)) if (tokens_prompt + tokens_completion > 0) else 0
+    elif "gpt-4o" in m:
+        cost = (tokens_prompt * 15 + tokens_completion * 60) / 1_000_000
+        return max(1, round(cost)) if (tokens_prompt + tokens_completion > 0) else 0
+    return 0
+
+
+async def record_ai_usage(
+    db: AsyncSession,
+    team: TeamContext,
+    provider: str,
+    model: str,
+    operation_type: str,
+    tokens_prompt: int = 150,
+    tokens_completion: int = 350,
+    content_job_id: int | None = None,
+) -> AIUsageLedger:
+    """Append immutable transaction entry to the AI usage ledger."""
+    cost_cents = calculate_cost_cents(model, tokens_prompt, tokens_completion)
+    ledger_entry = AIUsageLedger(
+        owner_id=team.owner.id,
+        user_id=team.current_user.id,
+        content_job_id=content_job_id,
+        provider=provider,
+        model=model,
+        tokens_prompt=tokens_prompt,
+        tokens_completion=tokens_completion,
+        cost_cents=cost_cents,
+        operation_type=operation_type,
+    )
+    res = db.add(ledger_entry)
+    if inspect.isawaitable(res):
+        await res
+    await db.flush()
+    return ledger_entry
+
+
+async def _execute_with_retry(
+    provider: BaseAIProvider,
+    prompt: str,
+    model: str,
+    response_model: type,
+    system_prompt: str | None = None,
+):
+    """Execute structured generation with 1-retry fallback on malformed JSON or validation errors."""
+    try:
+        return await provider.generate_structured(
+            prompt=prompt,
+            model=model,
+            response_model=response_model,
+            system_prompt=system_prompt,
+        )
+    except Exception as exc:
+        logger.warning(
+            "AI generation failed on first attempt (%s: %s). Executing 1-retry fallback with strict schema instructions...",
+            type(exc).__name__,
+            exc,
+        )
+        retry_prompt = (
+            f"{prompt}\n\n"
+            "CRITICAL: The previous output failed schema validation or was malformed JSON. "
+            "Please return ONLY a valid, strictly formatted JSON object adhering to the schema."
+        )
+        return await provider.generate_structured(
+            prompt=retry_prompt,
+            model=model,
+            response_model=response_model,
+            system_prompt=system_prompt,
+            temperature=0.2,
+        )
+
+
 # --- Brand Persona Management ---
 
 async def create_brand_persona(
@@ -116,7 +195,9 @@ async def create_brand_persona(
         target_audience=request.target_audience,
         is_default=request.is_default,
     )
-    db.add(persona)
+    res = db.add(persona)
+    if inspect.isawaitable(res):
+        await res
     await db.flush()
     return persona
 
@@ -270,6 +351,15 @@ async def generate_post(
     request: GeneratePostRequest,
 ) -> GeneratedPostResponse:
     """Generate structured content incorporating Persona and Analytics feedback."""
+    # 1. Content Safety Guardrail
+    is_safe, reason = check_content_safety(request.topic)
+    if not is_safe:
+        raise InvalidInputError(reason)
+    if request.extra_instructions:
+        is_safe, reason = check_content_safety(request.extra_instructions)
+        if not is_safe:
+            raise InvalidInputError(reason)
+
     provider = get_ai_provider()
     tier, model = await resolve_user_ai_tier(db, team)
 
@@ -290,12 +380,29 @@ async def generate_post(
         persona.name if persona else "None",
     )
 
-    response = await provider.generate_structured(
+    response = await _execute_with_retry(
+        provider=provider,
         prompt=user_prompt,
         model=model,
         response_model=GeneratedPostResponse,
         system_prompt=system_prompt,
     )
+
+    # 2. Record immutable transaction in AI usage ledger
+    tokens_prompt = max(10, (len(system_prompt) + len(user_prompt)) // 4)
+    tokens_completion = max(10, len(response.body) // 4 + 100)
+    provider_name = getattr(provider, "provider_name", "openrouter")
+
+    await record_ai_usage(
+        db=db,
+        team=team,
+        provider=provider_name,
+        model=model,
+        operation_type="generate",
+        tokens_prompt=tokens_prompt,
+        tokens_completion=tokens_completion,
+    )
+
     return response
 
 
@@ -305,6 +412,14 @@ async def stream_post(
     request: GeneratePostRequest,
 ) -> AsyncIterator[str]:
     """Stream token deltas for interactive studio creation."""
+    is_safe, reason = check_content_safety(request.topic)
+    if not is_safe:
+        raise InvalidInputError(reason)
+    if request.extra_instructions:
+        is_safe, reason = check_content_safety(request.extra_instructions)
+        if not is_safe:
+            raise InvalidInputError(reason)
+
     provider = get_ai_provider()
     tier, model = await resolve_user_ai_tier(db, team)
 
@@ -343,6 +458,10 @@ async def optimize_post(
     request: OptimizePostRequest,
 ) -> OptimizePostResponse:
     """Analyze and optimize a draft post ('Content Doctor')."""
+    is_safe, reason = check_content_safety(request.draft_text)
+    if not is_safe:
+        raise InvalidInputError(reason)
+
     provider = get_ai_provider()
     tier, model = await resolve_user_ai_tier(db, team)
     persona = await resolve_active_persona(db, team, request.persona_id)
@@ -351,12 +470,29 @@ async def optimize_post(
 
     logger.info("Running Content Doctor for team owner %d on platform %s", team.owner.id, request.platform)
 
-    return await provider.generate_structured(
+    response = await _execute_with_retry(
+        provider=provider,
         prompt=user_prompt,
         model=model,
         response_model=OptimizePostResponse,
         system_prompt=sys_prompt,
     )
+
+    tokens_prompt = max(10, (len(sys_prompt) + len(user_prompt)) // 4)
+    tokens_completion = max(10, len(response.improved_version) // 4 + 100)
+    provider_name = getattr(provider, "provider_name", "openrouter")
+
+    await record_ai_usage(
+        db=db,
+        team=team,
+        provider=provider_name,
+        model=model,
+        operation_type="optimize",
+        tokens_prompt=tokens_prompt,
+        tokens_completion=tokens_completion,
+    )
+
+    return response
 
 
 async def repurpose_post(
@@ -365,6 +501,10 @@ async def repurpose_post(
     request: RepurposeRequest,
 ) -> RepurposeResponse:
     """Repurpose master text into native posts across multiple platforms."""
+    is_safe, reason = check_content_safety(request.source_text)
+    if not is_safe:
+        raise InvalidInputError(reason)
+
     provider = get_ai_provider()
     tier, model = await resolve_user_ai_tier(db, team)
     persona = await resolve_active_persona(db, team, request.persona_id)
@@ -377,12 +517,29 @@ async def repurpose_post(
         request.target_platforms,
     )
 
-    return await provider.generate_structured(
+    response = await _execute_with_retry(
+        provider=provider,
         prompt=user_prompt,
         model=model,
         response_model=RepurposeResponse,
         system_prompt=sys_prompt,
     )
+
+    tokens_prompt = max(10, (len(sys_prompt) + len(user_prompt)) // 4)
+    tokens_completion = max(50, sum(len(p.body) // 4 for p in response.posts.values()))
+    provider_name = getattr(provider, "provider_name", "openrouter")
+
+    await record_ai_usage(
+        db=db,
+        team=team,
+        provider=provider_name,
+        model=model,
+        operation_type="repurpose",
+        tokens_prompt=tokens_prompt,
+        tokens_completion=tokens_completion,
+    )
+
+    return response
 
 
 async def recommend_smart_schedule(
