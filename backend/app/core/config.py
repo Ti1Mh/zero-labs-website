@@ -35,6 +35,17 @@ class Settings(BaseSettings):
     s3_region_name: str = "us-east-1"
     s3_public_url: str | None = None
 
+    # AI & OpenRouter Configuration
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_site_url: str = "https://zeroio.io"
+    openrouter_app_name: str = "ZeroIO Social Studio"
+    ai_free_model: str = "google/gemini-2.0-flash:free"
+    ai_pro_model: str = "openai/gpt-4o-mini"
+    ai_enterprise_model: str = "anthropic/claude-3.5-sonnet"
+    ai_default_provider: str = "mock"
+    ai_request_timeout: float = 35.0
+
     @property
     def cors_origins(self) -> list[str]:
         """Split the comma-separated CORS origins string."""

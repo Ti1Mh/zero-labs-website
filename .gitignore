@@ -53,4 +53,6 @@ venv/
 !.env.example
 project_dump.txt
 extract_code.py
+storage/
+backend/storage/
 

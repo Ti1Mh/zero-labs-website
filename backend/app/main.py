@@ -16,6 +16,7 @@ from app.analytics.router import router as analytics_router
 from app.subscriptions.router import router as subscriptions_router
 from app.channels.router import router as channel_router
 from app.uploads.router import router as uploads_router
+from app.ai.router import router as ai_router
 from app.core.config import get_settings
 from app.core.exceptions import (
     AuthenticationError,
@@ -88,6 +89,7 @@ app.include_router(channel_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(subscriptions_router, prefix="/api/v1")
 app.include_router(uploads_router, prefix="/api/v1")
+app.include_router(ai_router, prefix="/api/v1")
 
 @app.get("/healthz", tags=["meta"])
 async def healthcheck() -> dict[str, str]:

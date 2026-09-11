@@ -16,10 +16,11 @@ dependencies = [
     "arq>=0.26",
     "redis>=5.0",
     "boto3>=1.35.0",
+    "httpx>=0.28.0",
 ]
 
 [dependency-groups]
-dev = ["ruff>=0.16.0", "pytest>=8.4.0", "pytest-asyncio>=1.0.0", "httpx>=0.28.0"]
+dev = ["ruff>=0.16.0", "pytest>=8.4.0", "pytest-asyncio>=1.0.0"]
 
 [tool.ruff]
 line-length = 100
