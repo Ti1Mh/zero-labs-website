@@ -167,6 +167,7 @@ def _build_subscription_out(sub, plan: Plan, usage: int) -> SubscriptionOut:
         plan=plan_out,
         status=sub.status,
         currency=sub.currency,
+        amount_paid=getattr(sub, "amount_paid", 0),
         started_at=sub.started_at,
         expires_at=sub.expires_at,
         auto_renew=sub.auto_renew,

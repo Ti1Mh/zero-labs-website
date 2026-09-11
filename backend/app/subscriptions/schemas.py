@@ -43,6 +43,7 @@ class SubscriptionOut(BaseModel):
     plan: PlanOut
     status: str
     currency: str
+    amount_paid: int = 0
     started_at: datetime
     expires_at: datetime
     auto_renew: bool

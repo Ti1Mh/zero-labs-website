@@ -41,6 +41,7 @@ class Subscription(Base):
     )
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="IRR")
+    amount_paid: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

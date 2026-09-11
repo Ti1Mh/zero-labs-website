@@ -71,6 +71,15 @@ async def subscribe(
             f"ارز {currency} برای این پلن پشتیبانی نمی‌شود. ارزهای پشتیبانی‌شده: {supported}"
         )
 
+    if period not in plan.prices[currency]:
+        raise InvalidInputError(f"دوره {period} برای این پلن معتبر نیست.")
+
+    raw_price = plan.prices[currency][period]
+    if currency == "USD":
+        amount_paid = int(round(float(raw_price) * 100))
+    else:
+        amount_paid = int(round(float(raw_price)))
+
     # Prevent double subscription
     current = await get_current_subscription(db, user_id)
     if current is not None:
@@ -86,6 +95,7 @@ async def subscribe(
         plan_id=plan.id,
         status="active",
         currency=currency,
+        amount_paid=amount_paid,
         started_at=now,
         expires_at=expires,
         auto_renew=True,
