@@ -14,6 +14,7 @@ class ContentStatus(StrEnum):
     published = "published"
     failed = "failed"
     scheduled = "scheduled"
+    cancelled = "cancelled"
 
 
 class ContentRequest(BaseModel):
@@ -47,7 +48,7 @@ class ContentListRequest(BaseModel):
 
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
-    status: str | None = Field(default=None, pattern="^(queued|scheduled|processing|published|failed)$")
+    status: str | None = Field(default=None, pattern="^(queued|scheduled|processing|published|failed|cancelled)$")
     platform_code: str | None = Field(default=None, max_length=50)
 
 

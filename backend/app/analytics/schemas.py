@@ -12,6 +12,7 @@ class PlatformStats(BaseModel):
     total: int
     published: int
     failed: int
+    cancelled: int = 0
     success_rate: float
 
 
@@ -21,6 +22,7 @@ class TimelinePoint(BaseModel):
     date: date
     published: int
     failed: int
+    cancelled: int = 0
     queued: int
 
 
@@ -41,6 +43,7 @@ class SummaryResponse(BaseModel):
     total: int
     published: int
     failed: int
+    cancelled: int = 0
     queued: int
     scheduled: int
     success_rate: float

@@ -16,6 +16,7 @@ async def get_summary(db: AsyncSession, team: TeamContext) -> dict:
         func.count(ContentJob.id).label("total"),
         func.sum(case((ContentJob.status == "published", 1), else_=0)).label("published"),
         func.sum(case((ContentJob.status == "failed", 1), else_=0)).label("failed"),
+        func.sum(case((ContentJob.status == "cancelled", 1), else_=0)).label("cancelled"),
         func.sum(case((ContentJob.status == "queued", 1), else_=0)).label("queued"),
         func.sum(case((ContentJob.status == "scheduled", 1), else_=0)).label("scheduled"),
     ).where(ContentJob.created_by == team.owner.id)
@@ -26,6 +27,7 @@ async def get_summary(db: AsyncSession, team: TeamContext) -> dict:
     total = row.total or 0
     published = row.published or 0
     failed = row.failed or 0
+    cancelled = row.cancelled or 0
     queued = row.queued or 0
     scheduled = row.scheduled or 0
 
@@ -36,6 +38,7 @@ async def get_summary(db: AsyncSession, team: TeamContext) -> dict:
         "total": total,
         "published": published,
         "failed": failed,
+        "cancelled": cancelled,
         "queued": queued,
         "scheduled": scheduled,
         "success_rate": round(success_rate, 2),
@@ -50,6 +53,7 @@ async def get_by_platform(db: AsyncSession, team: TeamContext) -> list[dict]:
             func.count(ContentJob.id).label("total"),
             func.sum(case((ContentJob.status == "published", 1), else_=0)).label("published"),
             func.sum(case((ContentJob.status == "failed", 1), else_=0)).label("failed"),
+            func.sum(case((ContentJob.status == "cancelled", 1), else_=0)).label("cancelled"),
         )
         .join(Platform, Platform.id == ContentJob.platform_id)
         .where(ContentJob.created_by == team.owner.id)
@@ -69,6 +73,7 @@ async def get_by_platform(db: AsyncSession, team: TeamContext) -> list[dict]:
             "total": row.total,
             "published": row.published,
             "failed": row.failed,
+            "cancelled": row.cancelled or 0,
             "success_rate": round(rate, 2),
         })
     return platforms
@@ -93,6 +98,7 @@ async def get_timeline(
             func.date(ContentJob.created_at).label("day"),
             func.sum(case((ContentJob.status == "published", 1), else_=0)).label("published"),
             func.sum(case((ContentJob.status == "failed", 1), else_=0)).label("failed"),
+            func.sum(case((ContentJob.status == "cancelled", 1), else_=0)).label("cancelled"),
             func.sum(case((ContentJob.status == "queued", 1), else_=0)).label("queued"),
         )
         .where(
@@ -114,6 +120,7 @@ async def get_timeline(
             "date": cursor,
             "published": int(row.published) if row else 0,
             "failed": int(row.failed) if row else 0,
+            "cancelled": int(row.cancelled) if row and row.cancelled else 0,
             "queued": int(row.queued) if row else 0,
         })
         cursor += timedelta(days=1)

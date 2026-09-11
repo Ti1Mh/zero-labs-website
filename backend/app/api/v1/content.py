@@ -121,7 +121,7 @@ async def list_content_jobs(
     status_filter: str | None = Query(
         default=None,
         alias="status",
-        pattern="^(queued|scheduled|processing|published|failed)$",
+        pattern="^(queued|scheduled|processing|published|failed|cancelled)$",
     ),
     platform_code: str | None = Query(default=None, max_length=50),
     team: TeamContext = Depends(require("content:view")),
@@ -205,7 +205,7 @@ async def cancel_content_job(
     team: TeamContext = Depends(require("content:cancel")),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Cancel a queued or scheduled job (mark as failed with a reason)."""
+    """Cancel a queued or scheduled job (mark as cancelled with a reason)."""
     result = await db.execute(
         select(ContentJob).where(
             ContentJob.id == job_id,
@@ -221,6 +221,6 @@ async def cancel_content_job(
             "Only queued or scheduled jobs can be cancelled.",
         )
 
-    job.status = "failed"
+    job.status = "cancelled"
     job.error_message = "Cancelled by user"
     await db.commit()
