@@ -17,6 +17,7 @@ from app.schemas.content import (
     ContentRequest,
     ContentResponse,
 )
+from app.subscriptions.dependencies import require_active_subscription
 
 
 router = APIRouter(prefix="/content", tags=["content"])
@@ -27,6 +28,7 @@ async def create_content_job(
     payload: ContentRequest,
     request: Request,
     team: TeamContext = Depends(require("content:create")),
+    _sub: TeamContext = Depends(require_active_subscription),
     db: AsyncSession = Depends(get_db),
 ) -> ContentResponse:
     """Queue a content job (immediately or scheduled) after validating the target platform."""
