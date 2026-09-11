@@ -190,11 +190,15 @@ async def verify_register(
             password_hash=hash_password(password),
             display_name=display_name,
             is_verified=True,
+            owner_user_id=None,
+            role_id=None,
         )
         db.add(user)
     else:
         user.password_hash = hash_password(password)
         user.is_verified = True
+        user.owner_user_id = None
+        user.role_id = None
         if display_name:
             user.display_name = display_name
     await db.flush()
