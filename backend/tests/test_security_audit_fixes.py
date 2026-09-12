@@ -51,6 +51,53 @@ async def test_otp_brute_force_counter_persists_and_locks_out():
 
 
 @pytest.mark.anyio
+async def test_otp_attempts_persist_across_failures_service_e2e():
+    """Verify that verify_register locks out the user on the 6th attempt even with correct code."""
+    from app.auth.service import verify_register
+
+    now = datetime.now(timezone.utc)
+    otp = OtpCode(
+        id=99,
+        phone_number="+989121112233",
+        purpose="register",
+        code_hash=hash_otp_code("123456"),
+        attempts=0,
+        expires_at=now + timedelta(minutes=5),
+        created_at=now,
+    )
+
+    db = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = otp
+    db.execute.return_value = mock_result
+
+    # Send wrong code 5 times through the public service function verify_register
+    for i in range(1, MAX_OTP_ATTEMPTS + 1):
+        with pytest.raises(AuthenticationError, match="کد نادرست است."):
+            await verify_register(
+                db=db,
+                raw_phone="09121112233",
+                code="000000",
+                password="SecurePassword123!",
+                display_name="Test User",
+                device_info="pytest",
+            )
+        assert otp.attempts == i
+        assert db.commit.call_count == i
+
+    # 6th attempt with the CORRECT code must be rejected due to attempt limit reached
+    with pytest.raises(AuthenticationError, match="تعداد تلاش‌ها تمام شد"):
+        await verify_register(
+            db=db,
+            raw_phone="09121112233",
+            code="123456",
+            password="SecurePassword123!",
+            display_name="Test User",
+            device_info="pytest",
+        )
+
+
+@pytest.mark.anyio
 async def test_otp_verify_rate_limiting_phone_and_ip():
     """Verify sliding window rate limiting on OTP verification (5/min phone, 15/min IP)."""
     _memory_store.clear()

@@ -22,7 +22,9 @@ from app.ai.router import router as ai_router
 from app.admin.router import router as admin_router
 from app.support.router import router as support_router
 from app.internal.router import router as internal_router
+from app.notifications.router import router as notification_router
 from app.core.config import get_settings
+
 from app.core.exceptions import (
     AuthenticationError,
     ConflictError,
@@ -104,8 +106,10 @@ app.include_router(uploads_router, prefix="/api/v1")
 app.include_router(ai_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(support_router, prefix="/api/v1")
+app.include_router(notification_router, prefix="/api/v1")
 app.include_router(internal_router)
 app.include_router(internal_router, prefix="/api/v1")
+
 
 @app.get("/healthz", tags=["meta"])
 async def healthcheck(request: Request) -> JSONResponse:
@@ -141,7 +145,9 @@ async def healthcheck(request: Request) -> JSONResponse:
         status_code=status_code,
         content={
             "status": "ok" if is_healthy else "degraded",
+            "db": "up" if db_status == "ok" else "down",
+            "redis": "up" if redis_status in ["ok", "unconfigured"] else "down",
             "database": db_status,
-            "redis": redis_status,
+            "redis_status": redis_status,
         },
     )

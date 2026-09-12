@@ -18,6 +18,7 @@ from app.schemas.content import (
     ContentResponse,
 )
 from app.subscriptions.dependencies import require_active_subscription
+from app.ai.safety import check_content_safety
 
 
 router = APIRouter(prefix="/content", tags=["content"])
@@ -32,6 +33,14 @@ async def create_content_job(
     db: AsyncSession = Depends(get_db),
 ) -> ContentResponse:
     """Queue a content job (immediately or scheduled) after validating the target platform."""
+
+    # 0) Content Safety Guardrail
+    is_safe, reason = check_content_safety(payload.description)
+    if not is_safe:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=reason,
+        )
 
     # 1) Idempotency guard
     if payload.idempotency_key is not None:

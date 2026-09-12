@@ -127,10 +127,7 @@ async def test_invite_member_with_existing_registered_account():
 
     mock_db.execute.side_effect = execute_side_effect
 
-    with patch("app.auth.service._enforce_otp_rate_limit", new_callable=AsyncMock), \
-         patch("app.auth.service._enforce_ip_rate_limit", new_callable=AsyncMock), \
-         patch("app.auth.service.get_sms_sender") as mock_sms_factory:
-
+    with patch("app.auth.service.get_sms_sender") as mock_sms_factory:
         mock_sms = MagicMock()
         mock_sms_factory.return_value = mock_sms
 
@@ -164,10 +161,8 @@ async def test_invite_member_prevent_self_or_duplicate_team():
 
     mock_db.execute.side_effect = exec_self
 
-    with patch("app.auth.service._enforce_otp_rate_limit", new_callable=AsyncMock), \
-         patch("app.auth.service._enforce_ip_rate_limit", new_callable=AsyncMock):
-        with pytest.raises(ConflictError, match="نمی‌توانید خودتان را به عنوان عضو دعوت کنید"):
-            await invite_member(mock_db, owner, InviteRequest(phone="09121111111", role_id=5), None)
+    with pytest.raises(ConflictError, match="نمی‌توانید خودتان را به عنوان عضو دعوت کنید"):
+        await invite_member(mock_db, owner, InviteRequest(phone="09121111111", role_id=5), None)
 
     # 2. User already in team
     existing_member = User(id=3, phone_number="+989123333333", owner_user_id=1)
@@ -181,10 +176,9 @@ async def test_invite_member_prevent_self_or_duplicate_team():
 
     mock_db.execute.side_effect = exec_member
 
-    with patch("app.auth.service._enforce_otp_rate_limit", new_callable=AsyncMock), \
-         patch("app.auth.service._enforce_ip_rate_limit", new_callable=AsyncMock):
-        with pytest.raises(ConflictError, match="این کاربر در حال حاضر عضو تیم شما است"):
-            await invite_member(mock_db, owner, InviteRequest(phone="09123333333", role_id=5), None)
+    with pytest.raises(ConflictError, match="این کاربر در حال حاضر عضو تیم شما است"):
+        await invite_member(mock_db, owner, InviteRequest(phone="09123333333", role_id=5), None)
+
 
 
 @pytest.mark.anyio

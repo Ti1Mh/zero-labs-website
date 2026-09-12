@@ -122,6 +122,21 @@ async def dispatch_to_bot(ctx: dict, job_id: int) -> dict:
                     f"[WORKER DLQ] job {job_id} permanently failed after {job.retry_count} attempts. "
                     f"Moved to Dead Letter Queue: {exc}"
                 )
+                if job.created_by is not None:
+                    try:
+                        from app.notifications.service import send_notification
+                        await send_notification(
+                            db=db,
+                            user_id=job.created_by,
+                            type="job_failed",
+                            title=f"خطا در انتشار محتوا (شناسه {job_id})",
+                            message=f"تلاش برای انتشار پست پس از {job.retry_count} بار به دلیل خطا متوقف شد: {job.error_message}",
+                            metadata_json={"job_id": job_id, "retry_count": job.retry_count, "error": job.error_message},
+                            redis_client=ctx.get("redis"),
+                        )
+                    except Exception as notif_err:
+                        logger.warning(f"[WORKER] Failed to send job failure notification: {notif_err}")
+
 
         final_status = job.status
         await db.commit()

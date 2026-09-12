@@ -107,44 +107,6 @@ async def _invalidate_previous_otps(db: AsyncSession, phone: str, purpose: str) 
     )
 
 
-async def _enforce_otp_rate_limit(db: AsyncSession, phone: str) -> None:
-    """Reject when the hourly OTP cap for this phone is reached."""
-    result = await db.execute(
-        select(func.count())
-        .select_from(OtpCode)
-        .where(
-            OtpCode.phone_number == phone,
-            OtpCode.created_at >= _now() - timedelta(hours=1),
-        )
-    )
-    val = result.scalar_one()
-    if inspect.isawaitable(val):
-        val = await val
-    int_val = val if isinstance(val, (int, float)) else 0
-    if int_val >= get_settings().otp_hourly_cap:
-        raise RateLimitError("تعداد درخواست کد از حد مجاز عبور کرده؛ کمی بعد تلاش کنید.")
-
-
-async def _enforce_ip_rate_limit(db: AsyncSession, ip_address: str | None) -> None:
-    """Reject when the daily OTP cap for this IP is reached."""
-    if ip_address is None:
-        return
-    result = await db.execute(
-        select(func.count())
-        .select_from(OtpCode)
-        .where(
-            OtpCode.ip_address == ip_address,
-            OtpCode.created_at >= _now() - timedelta(days=1),
-        )
-    )
-    val = result.scalar_one()
-    if inspect.isawaitable(val):
-        val = await val
-    int_val = val if isinstance(val, (int, float)) else 0
-    if int_val >= get_settings().otp_daily_ip_cap:
-        raise RateLimitError("تعداد درخواست کد از این آدرس بیش از حد مجاز است.")
-
-
 async def request_register(
     db: AsyncSession,
     raw_phone: str,
@@ -155,8 +117,6 @@ async def request_register(
     if honeypot:
         return "000000"  # silent success for bots; nothing stored or sent
     phone = _normalize(raw_phone)
-    await _enforce_otp_rate_limit(db, phone)
-    await _enforce_ip_rate_limit(db, ip_address)
 
     already = await db.execute(
         select(exists().where(User.phone_number == phone, User.is_verified.is_(True)))
@@ -316,8 +276,6 @@ async def request_reset(db: AsyncSession, raw_phone: str, ip_address: str | None
         phone = _normalize(raw_phone)
     except InvalidInputError:
         return None
-    await _enforce_otp_rate_limit(db, phone)
-    await _enforce_ip_rate_limit(db, ip_address)
 
     exists_result = await db.execute(
         select(exists().where(User.phone_number == phone, User.is_verified.is_(True)))
@@ -384,10 +342,9 @@ async def invite_member(
         raise NotFoundError("نقش یافت نشد.")
 
     phone = _normalize(payload.phone)
-    await _enforce_otp_rate_limit(db, phone)
-    await _enforce_ip_rate_limit(db, ip_address)
 
     # Check if user already exists
+
     res_existing = await db.execute(select(User).where(User.phone_number == phone))
     existing_user = res_existing.scalar_one_or_none()
     if inspect.isawaitable(existing_user):
