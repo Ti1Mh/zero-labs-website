@@ -396,6 +396,11 @@ async def generate_post(
         system_prompt=system_prompt,
     )
 
+    # Output Content Safety Guardrail
+    out_safe, out_reason = check_content_safety(f"{response.headline} {response.body}")
+    if not out_safe:
+        raise InvalidInputError(f"محتوای تولید شده توسط هوش مصنوعی مغایر با قوانین ایمنی است: {out_reason}")
+
     if request.platform == "youtube":
         limited = enforce_youtube_limits({
             "title": response.headline,
@@ -497,6 +502,10 @@ async def optimize_post(
         system_prompt=sys_prompt,
     )
 
+    out_safe, out_reason = check_content_safety(response.improved_version)
+    if not out_safe:
+        raise InvalidInputError(f"محتوای بهینه‌سازی شده توسط هوش مصنوعی مغایر با قوانین ایمنی است: {out_reason}")
+
     tokens_prompt = max(10, (len(sys_prompt) + len(user_prompt)) // 4)
     tokens_completion = max(10, len(response.improved_version) // 4 + 100)
     provider_name = getattr(provider, "provider_name", "openrouter")
@@ -543,6 +552,11 @@ async def repurpose_post(
         response_model=RepurposeResponse,
         system_prompt=sys_prompt,
     )
+
+    for platform_key, post in response.posts.items():
+        out_safe, out_reason = check_content_safety(f"{post.headline} {post.body}")
+        if not out_safe:
+            raise InvalidInputError(f"محتوای تولید شده برای پلتفرم {platform_key} مغایر با قوانین ایمنی است: {out_reason}")
 
     tokens_prompt = max(10, (len(sys_prompt) + len(user_prompt)) // 4)
     tokens_completion = max(50, sum(len(p.body) // 4 for p in response.posts.values()))

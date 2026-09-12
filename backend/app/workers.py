@@ -66,7 +66,7 @@ async def publish_content(ctx: dict, job_id: int) -> dict:
             await asyncio.sleep(1)
             logger.info(
                 f"[WORKER] job {job_id} published successfully | platform_id={job.platform_id} "
-                f"| token={credentials[:6]}..."
+                f"| channel_id={channel.id}"
             )
             job.status = "published"
             job.error_message = None

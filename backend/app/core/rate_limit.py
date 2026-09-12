@@ -169,6 +169,36 @@ async def enforce_otp_rate_limits(
         )
 
 
+async def enforce_otp_verify_rate_limits(
+    redis_client: Any,
+    phone: str,
+    ip_address: str | None = None,
+) -> None:
+    """Enforce strict rate limiting on OTP verification attempts.
+
+    1. Phone Verify Window: 5 attempts per 60s
+    2. IP Verify Window: 15 attempts per 60s
+    """
+    # Tier 1: Per-phone limit (5 attempts / 60s)
+    await enforce_rate_limit(
+        redis_client=redis_client,
+        key=f"rate_limit:otp:verify:phone:{phone}",
+        max_requests=5,
+        window_seconds=60,
+        error_message="تعداد تلاش‌های تأیید کد برای این شماره بیش از حد مجاز است؛ لطفاً ۱ دقیقه صبر کنید.",
+    )
+
+    # Tier 2: Per-IP limit (15 attempts / 60s)
+    if ip_address:
+        await enforce_rate_limit(
+            redis_client=redis_client,
+            key=f"rate_limit:otp:verify:ip:{ip_address}",
+            max_requests=15,
+            window_seconds=60,
+            error_message="تعداد تلاش‌های تأیید کد از این آدرس اینترنتی بیش از حد مجاز است.",
+        )
+
+
 # --- Specialized AI Burst Limiter & Spend Circuit Breaker ---
 
 async def enforce_ai_burst_limit(redis_client: Any, user_id: int) -> None:

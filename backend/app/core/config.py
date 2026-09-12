@@ -3,6 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
@@ -68,6 +69,18 @@ class Settings(BaseSettings):
         """Split the comma-separated CORS origins string."""
         return [o.strip() for o in self.cors_origins_raw.split(",") if o.strip()]
     
+    @model_validator(mode="after")
+    def validate_production_cors(self) -> "Settings":
+        """Fail fast if insecure CORS origins (localhost / 127.0.0.1) are configured in production."""
+        if not self.debug:
+            for origin in self.cors_origins:
+                lower = origin.lower()
+                if "localhost" in lower or "127.0.0.1" in lower:
+                    raise ValueError(
+                        f"Insecure CORS origin '{origin}' is not permitted when debug=False in production."
+                    )
+        return self
+
     @property
     def encryption_key(self) -> bytes:
         """Return the Fernet key; fail fast if not configured."""

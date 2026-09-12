@@ -2,10 +2,12 @@
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+import inspect
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from arq import create_pool
 from arq.connections import RedisSettings
@@ -103,6 +105,40 @@ app.include_router(admin_router, prefix="/api/v1")
 app.include_router(support_router, prefix="/api/v1")
 
 @app.get("/healthz", tags=["meta"])
-async def healthcheck() -> dict[str, str]:
-    """Liveness probe for orchestrators and uptime monitors."""
-    return {"status": "ok"}
+async def healthcheck(request: Request) -> JSONResponse:
+    """Liveness and readiness probe probing DB and Redis status."""
+    db_status = "ok"
+    redis_status = "ok"
+    is_healthy = True
+
+    # 1. Database probe
+    try:
+        from app.core.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as exc:
+        db_status = f"unhealthy: {exc}"
+        is_healthy = False
+
+    # 2. Redis probe
+    try:
+        redis_client = getattr(request.app.state, "redis", None)
+        if redis_client is not None:
+            ping_res = redis_client.ping()
+            if inspect.isawaitable(ping_res):
+                await ping_res
+        else:
+            redis_status = "unconfigured"
+    except Exception as exc:
+        redis_status = f"unhealthy: {exc}"
+        is_healthy = False
+
+    status_code = 200 if is_healthy else 503
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "status": "ok" if is_healthy else "degraded",
+            "database": db_status,
+            "redis": redis_status,
+        },
+    )

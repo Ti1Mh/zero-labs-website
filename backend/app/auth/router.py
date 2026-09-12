@@ -34,7 +34,7 @@ from app.auth.security import hash_password
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.exceptions import ConflictError
-from app.core.rate_limit import enforce_otp_rate_limits
+from app.core.rate_limit import enforce_otp_rate_limits, enforce_otp_verify_rate_limits
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -47,10 +47,15 @@ def _device(request: Request) -> str | None:
 
 
 def _ip(request: Request) -> str | None:
-    """Extract the client IP address (supporting X-Forwarded-For reverse proxies)."""
+    """Extract client IP securely: prioritize X-Real-IP, then rightmost X-Forwarded-For hop, then client host."""
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
     return request.client.host if request.client else None
 
 
@@ -78,9 +83,13 @@ async def register_verify(
     payload: RegisterVerifyRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> TokenResponse:
     """Verify the OTP, create the account, and return tokens."""
+    client_ip = _ip(request)
+    redis_client = getattr(request.app.state, "redis", None)
+    await enforce_otp_verify_rate_limits(redis_client, payload.phone, client_ip)
+
     return await service.verify_register(
         db, payload.phone, payload.code, payload.password,
-        payload.display_name, _device(request), ip_address=_ip(request),
+        payload.display_name, _device(request), ip_address=client_ip,
     )
 
 
@@ -131,8 +140,12 @@ async def password_reset_confirm(
     payload: ResetConfirmRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> MessageResponse:
     """Set a new password and invalidate all sessions."""
+    client_ip = _ip(request)
+    redis_client = getattr(request.app.state, "redis", None)
+    await enforce_otp_verify_rate_limits(redis_client, payload.phone, client_ip)
+
     await service.confirm_reset(
-        db, payload.phone, payload.code, payload.new_password, ip_address=_ip(request)
+        db, payload.phone, payload.code, payload.new_password, ip_address=client_ip
     )
     return MessageResponse(message="رمز عبور تغییر کرد؛ دوباره وارد شوید.")
 
@@ -262,9 +275,13 @@ async def activate_member(
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Activate an invite with OTP and set a password."""
+    client_ip = _ip(request)
+    redis_client = getattr(request.app.state, "redis", None)
+    await enforce_otp_verify_rate_limits(redis_client, payload.phone, client_ip)
+
     return await service.activate_invite(
         db, payload.phone, payload.code, payload.password,
-        payload.display_name, _device(request), ip_address=_ip(request),
+        payload.display_name, _device(request), ip_address=client_ip,
     )
     
     

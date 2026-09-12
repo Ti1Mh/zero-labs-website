@@ -88,6 +88,7 @@ async def _consume_otp(db: AsyncSession, phone: str, purpose: str, code: str) ->
         raise AuthenticationError("تعداد تلاش‌ها تمام شد؛ کد جدید درخواست دهید.")
     if otp.code_hash != hash_otp_code(code):
         otp.attempts += 1
+        await db.commit()  # Critical: persist attempt count to prevent rollback on AuthenticationError
         raise AuthenticationError("کد نادرست است.")
     otp.used_at = _now()
     return otp
