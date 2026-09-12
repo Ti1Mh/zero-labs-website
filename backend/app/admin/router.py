@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin.schemas import (
     AILedgerSummaryResponse,
+    AdminCreateUserRequest,
     AdminPlanCreate,
     AdminPlanResponse,
     AdminPlanUpdate,
@@ -15,6 +16,7 @@ from app.admin.schemas import (
 )
 from app.admin.service import (
     create_plan_admin,
+    create_user_admin,
     get_ai_ledger_summary,
     get_plan_admin,
     list_dlq_jobs_admin,
@@ -107,6 +109,17 @@ async def list_users_endpoint(
     """List registered users with status flags."""
     users = await list_users_admin(db, limit=limit, offset=offset)
     return [AdminUserItem.model_validate(u) for u in users]
+
+
+@router.post("/users", response_model=AdminUserItem, status_code=status.HTTP_201_CREATED)
+async def create_user_endpoint(
+    request: AdminCreateUserRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_superuser),
+):
+    """Directly create a new user or administrator, or promote an existing user."""
+    user = await create_user_admin(db, request)
+    return AdminUserItem.model_validate(user)
 
 
 @router.patch("/users/{user_id}", response_model=AdminUserItem)

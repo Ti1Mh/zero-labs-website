@@ -66,11 +66,24 @@ class AdminUserItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminCreateUserRequest(BaseModel):
+    """Admin request to directly create a new user or administrator."""
+
+    phone: str = Field(min_length=10, max_length=20)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str | None = Field(default=None, max_length=100)
+    is_superuser: bool = True
+    is_active: bool = True
+
+
 class UpdateUserStatusRequest(BaseModel):
-    """Admin request to change user status or grant superuser permissions."""
+    """Admin request to change user status, credentials, or grant superuser permissions."""
 
     is_active: bool | None = None
     is_superuser: bool | None = None
+    phone_number: str | None = Field(default=None, min_length=10, max_length=20)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+    display_name: str | None = Field(default=None, max_length=100)
 
 
 # --- AI Ledger Schemas ---

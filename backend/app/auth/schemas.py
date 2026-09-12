@@ -155,3 +155,11 @@ class MemberUpdate(BaseModel):
 
     role_id: int | None = None
     is_active: bool | None = None
+
+
+class UpdateProfileRequest(BaseModel):
+    """Payload to update the current user's profile."""
+
+    display_name: str | None = Field(default=None, max_length=100)
+    phone_number: str | None = Field(default=None, min_length=10, max_length=20)
+    password: str | None = Field(default=None, min_length=8, max_length=128)

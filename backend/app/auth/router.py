@@ -1,6 +1,8 @@
 """Authentication endpoints."""
 
+import inspect
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import service
@@ -26,10 +28,12 @@ from app.auth.schemas import (
     UserOut,
     MemberOut,
     MemberUpdate,
-    
+    UpdateProfileRequest,
 )
+from app.auth.security import hash_password
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.exceptions import ConflictError
 from app.core.rate_limit import enforce_otp_rate_limits
 
 
@@ -143,6 +147,44 @@ async def me(team: TeamContext = Depends(get_current_team)) -> UserOut:
         is_verified=team.current_user.is_verified,
         is_owner=(team.role is None),
         is_superuser=team.current_user.is_superuser,
+        actions=list(team.actions),
+        scope=team.scope,
+    )
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_me_endpoint(
+    payload: UpdateProfileRequest,
+    team: TeamContext = Depends(get_current_team),
+    db: AsyncSession = Depends(get_db),
+) -> UserOut:
+    """Update current user's profile, phone number, or password."""
+    user = team.current_user
+    if payload.phone_number is not None:
+        norm_phone = service._normalize(payload.phone_number)
+        dup = await db.execute(
+            select(User).where(User.phone_number == norm_phone, User.id != user.id)
+        )
+        dup_user = dup.scalar_one_or_none()
+        if inspect.isawaitable(dup_user):
+            dup_user = await dup_user
+        if dup_user is not None:
+            raise ConflictError("این شماره موبایل توسط کاربر دیگری استفاده شده است.")
+        user.phone_number = norm_phone
+
+    if payload.password is not None:
+        user.password_hash = hash_password(payload.password)
+    if payload.display_name is not None:
+        user.display_name = payload.display_name
+
+    await db.flush()
+    return UserOut(
+        id=user.id,
+        phone_number=user.phone_number,
+        display_name=user.display_name,
+        is_verified=user.is_verified,
+        is_owner=(team.role is None),
+        is_superuser=user.is_superuser,
         actions=list(team.actions),
         scope=team.scope,
     )

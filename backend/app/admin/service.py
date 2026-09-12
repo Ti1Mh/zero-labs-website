@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.admin.schemas import (
     AILedgerEntryResponse,
     AILedgerSummaryResponse,
+    AdminCreateUserRequest,
     AdminPlanCreate,
     AdminPlanUpdate,
     DLQJobItemResponse,
@@ -17,6 +18,7 @@ from app.admin.schemas import (
 )
 from app.ai.ledger_models import AIUsageLedger
 from app.auth.models import User
+from app.auth.security import hash_password
 from app.core.exceptions import ConflictError, NotFoundError
 from app.models.content import ContentJob
 from app.subscriptions.models import Plan
@@ -144,12 +146,59 @@ async def list_users_admin(
     return list(users)
 
 
+def _normalize_phone(phone: str) -> str:
+    """Normalize phone to international format."""
+    clean = phone.strip()
+    if clean.startswith("0098"):
+        return "+98" + clean[4:]
+    if clean.startswith("09"):
+        return "+98" + clean[1:]
+    if not clean.startswith("+"):
+        return "+98" + clean
+    return clean
+
+
+async def create_user_admin(
+    db: AsyncSession,
+    req: AdminCreateUserRequest,
+) -> User:
+    """Create a new user or administrator directly, or promote existing user."""
+    norm_phone = _normalize_phone(req.phone)
+    res = await db.execute(select(User).where(User.phone_number == norm_phone))
+    user = res.scalar_one_or_none()
+    if inspect.isawaitable(user):
+        user = await user
+
+    if user is not None:
+        user.is_superuser = req.is_superuser
+        user.is_active = req.is_active
+        user.is_verified = True
+        if req.display_name:
+            user.display_name = req.display_name
+        if req.password:
+            user.password_hash = hash_password(req.password)
+    else:
+        user = User(
+            phone_number=norm_phone,
+            password_hash=hash_password(req.password),
+            display_name=req.display_name,
+            is_verified=True,
+            is_active=req.is_active,
+            is_superuser=req.is_superuser,
+            owner_user_id=None,
+        )
+        db.add(user)
+
+    await db.flush()
+    return user
+
+
 async def update_user_status_admin(
     db: AsyncSession,
     user_id: int,
     req: UpdateUserStatusRequest,
 ) -> User:
-    """Update user active or superuser status."""
+    """Update user active or superuser status, credentials, or phone number."""
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if inspect.isawaitable(user):
@@ -157,6 +206,22 @@ async def update_user_status_admin(
     if not user:
         raise NotFoundError("کاربر مورد نظر یافت نشد.")
 
+    if req.phone_number is not None:
+        norm_phone = _normalize_phone(req.phone_number)
+        dup = await db.execute(
+            select(User).where(User.phone_number == norm_phone, User.id != user_id)
+        )
+        dup_user = dup.scalar_one_or_none()
+        if inspect.isawaitable(dup_user):
+            dup_user = await dup_user
+        if dup_user is not None:
+            raise ConflictError("این شماره موبایل توسط کاربر دیگری استفاده شده است.")
+        user.phone_number = norm_phone
+
+    if req.password is not None:
+        user.password_hash = hash_password(req.password)
+    if req.display_name is not None:
+        user.display_name = req.display_name
     if req.is_active is not None:
         user.is_active = req.is_active
     if req.is_superuser is not None:
