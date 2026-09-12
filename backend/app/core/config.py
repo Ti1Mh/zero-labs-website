@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     ai_burst_per_minute: int = 10
     ai_daily_spend_cap_cents: int = 500  # $5.00 daily spend ceiling tripwire
     fernet_key: str | None = None
+    worker_token: str = "mezonflow-worker-secret-token-change-in-prod"
 
     # S3 / MinIO Object Storage
     s3_endpoint_url: str = "http://127.0.0.1:9000"
@@ -71,7 +72,7 @@ class Settings(BaseSettings):
     
     @model_validator(mode="after")
     def validate_production_cors(self) -> "Settings":
-        """Fail fast if insecure CORS origins (localhost / 127.0.0.1) are configured in production."""
+        """Fail fast if insecure CORS origins (localhost / 127.0.0.1) or invalid secrets are configured in production."""
         if not self.debug:
             for origin in self.cors_origins:
                 lower = origin.lower()
@@ -79,6 +80,8 @@ class Settings(BaseSettings):
                     raise ValueError(
                         f"Insecure CORS origin '{origin}' is not permitted when debug=False in production."
                     )
+            if not self.worker_token or len(self.worker_token) < 16:
+                raise ValueError("WORKER_TOKEN must be configured with at least 16 characters in production.")
         return self
 
     @property

@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 import inspect
+import json
 import logging
 import random
 import traceback
@@ -16,12 +17,13 @@ from app.core.config import get_settings
 from app.core.database import engine
 from app.core.encryption import decrypt
 from app.models.content import ContentJob
+from app.models.platform import Platform
 
 logger = logging.getLogger(__name__)
 session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 
-async def publish_content(ctx: dict, job_id: int) -> dict:
+async def dispatch_to_bot(ctx: dict, job_id: int) -> dict:
     """Consume a publish job: load it, decrypt channel creds, publish with DLQ & retry recovery."""
     async with session_maker() as db:
         result = await db.execute(select(ContentJob).where(ContentJob.id == job_id))
@@ -62,13 +64,37 @@ async def publish_content(ctx: dict, job_id: int) -> dict:
 
             credentials = decrypt(channel.credentials_encrypted)
 
-            # Platform dispatch simulation or real publisher
-            await asyncio.sleep(1)
+            # Resolve platform code
+            platform_res = await db.execute(select(Platform).where(Platform.id == job.platform_id))
+            platform = platform_res.scalar_one_or_none()
+            if inspect.isawaitable(platform):
+                platform = await platform
+            platform_code = platform.code if platform else "unknown"
+
+            # Dispatch to Redis Stream for external language-agnostic bot workers
+            redis = ctx.get("redis")
+            stream_payload = {
+                "job_id": str(job.id),
+                "platform": str(platform_code),
+                "title": str(job.extra_metadata.get("title") or "") if job.extra_metadata else "",
+                "description": str(job.description or ""),
+                "credentials": str(credentials),
+                "media_urls": json.dumps(job.extra_metadata.get("media_urls", [])) if job.extra_metadata else "[]",
+                "extra_metadata": json.dumps(job.extra_metadata or {}),
+                "schema_version": "1",
+                "dispatched_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+            if redis is not None and hasattr(redis, "xadd"):
+                xadd_res = redis.xadd("publish_jobs", stream_payload)
+                if inspect.isawaitable(xadd_res):
+                    await xadd_res
+
             logger.info(
-                f"[WORKER] job {job_id} published successfully | platform_id={job.platform_id} "
+                f"[WORKER STREAM] job {job_id} dispatched to Redis stream 'publish_jobs' | platform={platform_code} "
                 f"| channel_id={channel.id}"
             )
-            job.status = "published"
+            job.status = "dispatched"
             job.error_message = None
             job.traceback_log = None
         except Exception as exc:  # noqa: BLE001
@@ -101,6 +127,11 @@ async def publish_content(ctx: dict, job_id: int) -> dict:
         await db.commit()
         return {"job_id": job_id, "status": final_status}
 
+
+# Alias for backward compatibility and semantic clarity
+publish_content = dispatch_to_bot
+
+
 async def enqueue_due_jobs(ctx: dict) -> dict:
     """Move due scheduled jobs to queued and enqueue them (every 30s)."""
     now = datetime.now(timezone.utc)
@@ -131,9 +162,10 @@ async def enqueue_due_jobs(ctx: dict) -> dict:
             print(f"[SCHEDULER] enqueued {enqueued} due job(s)")
         return {"due": len(ids), "enqueued": enqueued}
 
+
 class WorkerSettings:
     """arq worker configuration."""
 
-    functions = [publish_content]
+    functions = [publish_content, dispatch_to_bot]
     cron_jobs = [cron(enqueue_due_jobs, second={0, 30})]
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
