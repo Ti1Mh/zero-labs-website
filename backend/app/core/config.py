@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     s3_region_name: str = "us-east-1"
     s3_public_url: str | None = None
 
+    # SMS & WebOTP Provider Configuration
+    app_domain: str = "mezonflow.ir"
+    kavenegar_api_key: str | None = None
+    kavenegar_sender: str = "10008663"
+    kavenegar_otp_template: str | None = None
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_from_number: str | None = None
+
     # AI & OpenRouter Configuration
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"

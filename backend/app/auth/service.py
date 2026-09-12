@@ -21,7 +21,7 @@ from app.auth.security import (
     normalize_phone_number,
     verify_password,
 )
-from app.auth.sms import get_sms_sender
+from app.auth.sms import build_webotp_message, get_sms_sender
 from app.core.audit import log_audit
 from app.core.config import get_settings
 from app.core.exceptions import (
@@ -179,7 +179,8 @@ async def request_register(
     )
     if inspect.isawaitable(res_add):
         await res_add
-    get_sms_sender().send(phone, f"کد تأیید شما: {code}")
+    message = build_webotp_message(code=code)
+    get_sms_sender().send(phone, message, otp_code=code)
     return code
 
 
@@ -339,7 +340,8 @@ async def request_reset(db: AsyncSession, raw_phone: str, ip_address: str | None
     )
     if inspect.isawaitable(res_add):
         await res_add
-    get_sms_sender().send(phone, f"کد بازیابی رمز شما: {code}")
+    message = build_webotp_message(code=code)
+    get_sms_sender().send(phone, message, otp_code=code)
     return code
 
 
@@ -418,7 +420,8 @@ async def invite_member(
         expires_at=_now() + timedelta(hours=48),
     )
     db.add(invite)
-    get_sms_sender().send(phone, f"کد دعوت تیم شما: {code}")
+    invite_message = build_webotp_message(code=code, app_name="دعوت به تیم")
+    get_sms_sender().send(phone, invite_message, otp_code=code)
     await log_audit(
         db, "member.invited", user_id=owner.id, resource_type="invite",
         ip_address=ip_address,
