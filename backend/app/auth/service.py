@@ -386,24 +386,37 @@ async def invite_member(
     await _enforce_otp_rate_limit(db, phone)
     await _enforce_ip_rate_limit(db, ip_address)
 
-    already = await db.execute(
-        select(exists().where(User.phone_number == phone, User.is_verified.is_(True)))
-    )
-    if already.scalar_one():
-        raise ConflictError("این شماره قبلاً حساب دارد.")
+    # Check if user already exists
+    res_existing = await db.execute(select(User).where(User.phone_number == phone))
+    existing_user = res_existing.scalar_one_or_none()
+    if inspect.isawaitable(existing_user):
+        existing_user = await existing_user
+
+    if existing_user is not None:
+        if existing_user.id == owner.id:
+            raise ConflictError("نمی‌توانید خودتان را به عنوان عضو دعوت کنید.")
+        if existing_user.owner_user_id == owner.id:
+            raise ConflictError("این کاربر در حال حاضر عضو تیم شما است.")
+        if existing_user.owner_user_id is not None and existing_user.owner_user_id != owner.id:
+            raise ConflictError("این کاربر در حال حاضر عضو تیم دیگری است.")
 
     pending = await db.execute(
         select(MemberInvite).where(
             MemberInvite.phone_number == phone,
+            MemberInvite.owner_id == owner.id,
             MemberInvite.status == "pending",
+            MemberInvite.expires_at > _now(),
         )
     )
-    if pending.scalar_one_or_none() is not None:
+    res_pending = pending.scalar_one_or_none()
+    if inspect.isawaitable(res_pending):
+        res_pending = await res_pending
+    if res_pending is not None:
         raise ConflictError("برای این شماره دعوت فعال وجود دارد.")
 
     code = generate_otp_code()
     await _invalidate_previous_otps(db, phone, "invite")
-    db.add(
+    res_add = db.add(
         OtpCode(
             phone_number=phone,
             purpose="invite",
@@ -412,6 +425,8 @@ async def invite_member(
             ip_address=ip_address,
         )
     )
+    if inspect.isawaitable(res_add):
+        await res_add
     invite = MemberInvite(
         owner_id=owner.id,
         phone_number=phone,
@@ -420,7 +435,7 @@ async def invite_member(
         expires_at=_now() + timedelta(hours=48),
     )
     db.add(invite)
-    invite_message = build_webotp_message(code=code, app_name="دعوت به تیم")
+    invite_message = build_webotp_message(code=code, app_name=f"دعوت به تیم {owner.display_name or 'مزون‌فلو'}")
     get_sms_sender().send(phone, invite_message, otp_code=code)
     await log_audit(
         db, "member.invited", user_id=owner.id, resource_type="invite",
@@ -440,7 +455,7 @@ async def activate_invite(
     device_info: str | None,
     ip_address: str | None,
 ) -> TokenResponse:
-    """Verify invite OTP, create the member user, and issue tokens."""
+    """Verify invite OTP, link existing user or create member, and issue tokens."""
     phone = _normalize(raw_phone)
     await _consume_otp(db, phone, "invite", code)
 
@@ -452,18 +467,37 @@ async def activate_invite(
         )
     )
     invite = result.scalar_one_or_none()
+    if inspect.isawaitable(invite):
+        invite = await invite
     if invite is None:
         raise NotFoundError("دعوت معتبر یافت نشد.")
 
-    user = User(
-        phone_number=phone,
-        password_hash=hash_password(password),
-        display_name=display_name,
-        is_verified=True,
-        owner_user_id=invite.owner_id,
-        role_id=invite.role_id,
-    )
-    db.add(user)
+    # Link existing user or create new user
+    res_existing = await db.execute(select(User).where(User.phone_number == phone))
+    existing_user = res_existing.scalar_one_or_none()
+    if inspect.isawaitable(existing_user):
+        existing_user = await existing_user
+
+    if existing_user is not None:
+        existing_user.owner_user_id = invite.owner_id
+        existing_user.role_id = invite.role_id
+        existing_user.is_verified = True
+        if display_name:
+            existing_user.display_name = display_name
+        if password:
+            existing_user.password_hash = hash_password(password)
+        user = existing_user
+    else:
+        user = User(
+            phone_number=phone,
+            password_hash=hash_password(password),
+            display_name=display_name,
+            is_verified=True,
+            owner_user_id=invite.owner_id,
+            role_id=invite.role_id,
+        )
+        db.add(user)
+
     invite.status = "used"
     await db.flush()
     await log_audit(
@@ -516,11 +550,13 @@ async def update_member(
 
 
 async def delete_member(db: AsyncSession, owner: User, member_id: int) -> None:
-    """Delete a member and revoke all sessions."""
+    """Unlink a member from the team and revoke all sessions."""
     result = await db.execute(
         select(User).where(User.id == member_id, User.owner_user_id == owner.id)
     )
     member = result.scalar_one_or_none()
+    if inspect.isawaitable(member):
+        member = await member
     if member is None:
         raise NotFoundError("عضو یافت نشد.")
     await db.execute(
@@ -532,7 +568,9 @@ async def delete_member(db: AsyncSession, owner: User, member_id: int) -> None:
         db, "member.deleted", user_id=owner.id,
         resource_type="member", resource_id=str(member_id),
     )
-    await db.delete(member)
+    # Safely detach member from team without destroying user account
+    member.owner_user_id = None
+    member.role_id = None
     
 
 async def update_role(

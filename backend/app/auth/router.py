@@ -142,6 +142,7 @@ async def me(team: TeamContext = Depends(get_current_team)) -> UserOut:
         display_name=team.current_user.display_name,
         is_verified=team.current_user.is_verified,
         is_owner=(team.role is None),
+        is_superuser=team.current_user.is_superuser,
         actions=list(team.actions),
         scope=team.scope,
     )

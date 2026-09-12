@@ -78,6 +78,7 @@ class UserOut(BaseModel):
     display_name: str | None
     is_verified: bool
     is_owner: bool
+    is_superuser: bool = False
     actions: list[str]
     scope: list[dict]
 
